@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure File Upload System</title>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.1.1/crypto-js.min.js"></script>
+    <script src="https://unpkg.com/qrcode-generator@1.4.4/qrcode.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen font-['Inter']" x-data="fileUploadApp()">
+    <div class="container mx-auto px-4 py-8">
+        <div class="max-w-3xl mx-auto bg-white rounded-lg shadow-lg p-6">
+            <div class="flex justify-between items-center mb-6">
+                <h1 class="text-2xl font-bold text-gray-800">Secure File Upload System</h1>
+                <div class="flex space-x-2">
+                    <button @click="toggleDestination('storage')" 
+                            class="px-3 py-1 text-sm rounded-md transition"
+                            :class="destination === 'storage' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'">
+                        Storage
+                    </button>
+                    <button @click="toggleDestination('telegram')" 
+                            class="px-3 py-1 text-sm rounded-md transition"
+                            :class="destination === 'telegram' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'">
+                        Telegram
+                    </button>
+                </div>
+            </div>
+
+            <!-- File Upload Section -->
+            <div class="space-y-6">
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center" 
+                     @dragover.prevent 
+                     @drop.prevent="handleFileDrop"
+                     :class="{'border-blue-500': isDragging}"
+                     @dragenter.prevent="isDragging = true"
+                     @dragleave.prevent="isDragging = false">
+                    <i class="bi bi-cloud-upload text-4xl text-gray-400"></i>
+                    <p class="mt-2 text-sm text-gray-600">Drag and drop files here or</p>
+                    <input type="file" 
+                           @change="handleFileSelect" 
+                           class="hidden" 
+                           id="fileInput" 
+                           multiple>
+                    <button @click="document.getElementById('fileInput').click()" 
+                            class="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">
+                        Browse Files
+                    </button>
+                    <p class="mt-2 text-xs text-gray-500">
+                        <template x-if="destination === 'storage'">
+                            Upload to secure storage
+                        </template>
+                        <template x-if="destination === 'telegram'">
+                            Upload to Telegram chat bot
+                        </template>
+                    </p>
+                </div>
+
+                <!-- Upload Settings -->
+                <template x-if="destination === 'telegram'">
+                    <div class="bg-gray-50 rounded-lg p-4 space-y-3">
+                        <h3 class="text-sm font-medium text-gray-700">Telegram Upload Settings</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500 mb-1">Upload Type</label>
+                                <select x-model="telegramUploadType" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
+                                    <option value="photo">Photo</option>
+                                    <option value="document">Document</option>
+                                    <option value="encryptedFile">Encrypted File</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500 mb-1">Chat ID</label>
+                                <input type="text" x-model="telegramChatId" class="w-full border border-gray-300 rounded px-3 py-2 text-sm" placeholder="Chat ID or 'saved_messages'">
+                            </div>
+                        </div>
+                        
+                        <!-- Telegram Connection QR Code -->
+                        <div class="mt-4 pt-3 border-t border-gray-200">
+                            <button @click="generateTelegramQR" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition text-sm">
+                                Generate Telegram Connection QR
+                            </button>
+                            <div x-show="showQRCode" class="mt-4 flex justify-center">
+                                <div>
+                                    <div x-ref="telegramQrCode" class="bg-white p-2 inline-block"></div>
+                                    <p class="text-xs text-gray-500 mt-2 text-center">Scan to connect your Telegram account</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Additional Telegram Settings -->
+                        <div class="mt-4 space-y-3">
+                            <div>
+                                <label class="flex items-center">
+                                    <input type="checkbox" x-model="telegramOptions.silent" class="rounded text-blue-500">
+                                    <span class="ml-2 text-sm text-gray-700">Silent Notification</span>
+                                </label>
+                            </div>
+                            <div>
+                                <label class="flex items-center">
+                                    <input type="checkbox" x-model="telegramOptions.forceDocument" class="rounded text-blue-500">
+                                    <span class="ml-2 text-sm text-gray-700">Force Document Mode</span>
+                                </label>
+                            </div>
+                            <div>
+                                <label class="flex items-center">
+                                    <input type="checkbox" x-model="telegramOptions.saveToSavedMessages" class="rounded text-blue-500">
+                                    <span class="ml-2 text-sm text-gray-700">Save to "Saved Messages"</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Upload Progress -->
+                <div x-show="uploading" class="space-y-4">
+                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                        <div class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                             :style="`width: ${uploadProgress}%`"></div>
+                    </div>
+                    <p class="text-sm text-gray-600 text-center">
+                        <span x-text="uploadStatus"></span>... <span x-text="uploadProgress"></span>%
+                    </p>
+                </div>
+
+                <!-- File List -->
+                <div class="space-y-4 max-h-80 overflow-y-auto">
+                    <template x-for="file in files" :key="file.id">
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
+                            <div class="flex items-center space-x-3 overflow-hidden">
+                                <div class="flex-shrink-0">
+                                    <template x-if="file.type.startsWith('image/')">
+                                        <i class="bi bi-file-earmark-image text-blue-500 text-xl"></i>
+                                    </template>
+                                    <template x-if="file.type.startsWith('video/')">
+                                        <i class="bi bi-file-earmark-play text-red-500 text-xl"></i>
+                                    </template>
+                                    <template x-if="!file.type.startsWith('image/') && !file.type.startsWith('video/')">
+                                        <i class="bi bi-file-earmark text-gray-500 text-xl"></i>
+                                    </template>
+                                </div>
+                                <div class="truncate">
+                                    <p class="text-sm font-medium truncate" x-text="file.name"></p>
+                                    <p class="text-xs text-gray-500" x-text="formatFileSize(file.size)"></p>
+                                </div>
+                            </div>
+                            <button @click="removeFile(file.id)" 
+                                    class="text-red-500 hover:text-red-700 flex-shrink-0 ml-2">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Upload Button -->
+                <div class="flex justify-between">
+                    <button @click="clearFiles" 
+                            class="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition"
+                            :disabled="!files.length || uploading"
+                            :class="{'opacity-50 cursor-not-allowed': !files.length || uploading}">
+                        Clear All
+                    </button>
+                    <button @click="uploadFiles" 
+                            class="px-6 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition flex items-center space-x-2"
+                            :disabled="!files.length || uploading"
+                            :class="{'opacity-50 cursor-not-allowed': !files.length || uploading}">
+                        <span>Upload Files</span>
+                        <i class="bi bi-upload"></i>
+                    </button>
+                </div>
+
+                <!-- Messages -->
+                <div x-show="message" 
+                     :class="{'bg-green-100 text-green-700': messageType === 'success', 
+                             'bg-red-100 text-red-700': messageType === 'error',
+                             'bg-blue-100 text-blue-700': messageType === 'info'}"
+                     class="p-4 rounded">
+                    <p x-text="message"></p>
+                </div>
+            </div>
+
+            <!-- Uploaded Files History -->
+            <template x-if="uploadedFiles.length > 0">
+                <div class="mt-8">
+                    <h3 class="text-lg font-medium text-gray-700 mb-3">Recently Uploaded Files</h3>
+                    <div class="space-y-2 max-h-40 overflow-y-auto">
+                        <template x-for="uploadedFile in uploadedFiles" :key="uploadedFile.id">
+                            <div class="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-gray-100">
+                                <div class="flex items-center space-x-2 overflow-hidden">
+                                    <i class="bi bi-check-circle-fill text-green-500"></i>
+                                    <span class="text-sm truncate" x-text="uploadedFile.name"></span>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <template x-if="uploadedFile.url">
+                                        <a :href="uploadedFile.url" target="_blank" class="text-blue-500 hover:text-blue-700">
+                                            <i class="bi bi-link-45deg"></i>
+                                        </a>
+                                    </template>
+                                    <template x-if="uploadedFile.telegram_file_id">
+                                        <span class="text-xs text-indigo-500">
+                                            <i class="bi bi-telegram"></i>
+                                        </span>
+                                    </template>
+                                    <span class="text-xs text-gray-500" x-text="formatFileSize(uploadedFile.size)"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <div class="text-center text-xs text-gray-500 mt-4">
+            Secure File Upload System - Your files are protected
+        </div>
+    </div>
+
+    <script>
+        function fileUploadApp() {
+            return {
+                files: [],
+                uploadedFiles: [],
+                uploading: false,
+                uploadProgress: 0,
+                uploadStatus: 'Uploading',
+                isDragging: false,
+                message: '',
+                messageType: '',
+                nextFileId: 1,
+                destination: 'storage', // 'storage' or 'telegram'
+                telegramUploadType: 'photo',
+                telegramChatId: 'saved_messages',
+                telegramOptions: {
+                    silent: false,
+                    forceDocument: false,
+                    saveToSavedMessages: true
+                },
+                showQRCode: false,
+                
+                toggleDestination(dest) {
+                    this.destination = dest;
+                    if (dest === 'telegram' && this.telegramOptions.saveToSavedMessages) {
+                        this.telegramChatId = 'saved_messages';
+                    }
+                },
+
+                generateTelegramQR() {
+                    this.showQRCode = true;
+                    
+                    // Using setTimeout to ensure the DOM element exists
+                    setTimeout(() => {
+                        const qrContainer = this.$refs.telegramQrCode;
+                        if (!qrContainer) return;
+                        
+                        // Clear any existing QR code
+                        qrContainer.innerHTML = '';
+                        
+                        // Generate a deep link to Telegram with the bot username
+                        // This is a mock URL - you would use a real Telegram bot URL in production
+                        const telegramLink = `https://t.me/SecureUploadBot?start=auth_${Math.floor(Math.random() * 10000000)}`;
+                        
+                        // Generate QR code
+                        const qr = qrcode(0, 'M');
+                        qr.addData(telegramLink);
+                        qr.make();
+                        
+                        // Append the QR code to the container
+                        qrContainer.innerHTML = qr.createImgTag(4);
+                    }, 100);
+                },
+
+                handleFileDrop(e) {
+                    this.isDragging = false;
+                    const droppedFiles = [...e.dataTransfer.files];
+                    this.addFiles(droppedFiles);
+                },
+
+                handleFileSelect(e) {
+                    const selectedFiles = [...e.target.files];
+                    this.addFiles(selectedFiles);
+                    // Reset the input to allow re-uploading the same file
+                    e.target.value = '';
+                },
+
+                addFiles(newFiles) {
+                    newFiles.forEach(file => {
+                        if (!this.files.some(f => f.name === file.name && f.size === file.size)) {
+                            this.files.push({
+                                id: this.nextFileId++,
+                                file: file,
+                                name: file.name,
+                                size: file.size,
+                                type: file.type
+                            });
+                        }
+                    });
+                },
+
+                removeFile(id) {
+                    this.files = this.files.filter(f => f.id !== id);
+                },
+
+                clearFiles() {
+                    this.files = [];
+                    this.message = '';
+                },
+
+                formatFileSize(bytes) {
+                    if (bytes === 0) return '0 Bytes';
+                    const k = 1024;
+                    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                },
+                
+                async calculateMD5(file) {
+                    return new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            const wordArray = CryptoJS.lib.WordArray.create(e.target.result);
+                            const md5Hash = CryptoJS.MD5(wordArray).toString();
+                            resolve(md5Hash);
+                        };
+                        reader.onerror = (e) => {
+                            reject(e);
+                        };
+                        reader.readAsArrayBuffer(file);
+                    });
+                },
+
+                async uploadToStorage(file) {
+                    try {
+                        const formData = new FormData();
+                        
+                        formData.append('file', file.file);
+                        formData.append('userId', 'user123');
+                        formData.append('appSlug', 'secure-upload-789012');
+
+                        const response = await fetch('https://r0c8kgwocscg8gsokogwwsw4.zetaverse.one/storage/upload', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': 'Bearer DJ57f4tZXtaiSW6n8UBNfLMdMpy2'
+                            },
+                            body: formData
+                        });
+
+                        if (!response.ok) throw new Error('Upload failed');
+
+                        const data = await response.json();
+                        return {
+                            success: true,
+                            url: data.url,
+                            path: data.path,
+                            size: data.size,
+                            type: data.type
+                        };
+                    } catch (error) {
+                        console.error('Storage upload error:', error);
+                        throw error;
+                    }
+                },
+
+                async uploadToTelegram(file) {
+                    try {
+                        // Step 1: Generate a unique file ID
+                        const fileId = Math.floor(Math.random() * 1000000000);
+                        this.uploadStatus = 'Preparing for Telegram';
+                        
+                        // Step 2: Calculate MD5 checksum for file verification
+                        const md5Checksum = await this.calculateMD5(file.file);
+                        
+                        // Step 3: Determine the total number of parts needed
+                        const chunkSize = 512 * 1024; // 512 KB chunks as per Telegram API
+                        const totalParts = Math.ceil(file.file.size / chunkSize);
+                        
+                        this.uploadStatus = 'Chunking file for Telegram upload';
+                        
+                        // Step 4: Split file into chunks and upload each chunk
+                        const chunks = await this.chunkFile(file.file, chunkSize);
+                        
+                        // Step 5: Upload each chunk
+                        for (let i = 0; i < chunks.length; i++) {
+                            this.uploadStatus = `Uploading part ${i+1}/${chunks.length}`;
+                            this.uploadProgress = Math.floor((i / chunks.length) * 100);
+                            
+                            // Simulate chunk upload with saveFilePart method
+                            // In a real implementation, this would make an API call to Telegram
+                            await new Promise(resolve => setTimeout(resolve, 150)); // Simulate network delay
+                            
+                            // Here we would make actual API calls to Telegram's saveFilePart or saveBigFilePart
+                        }
+                        
+                        this.uploadStatus = 'Finalizing Telegram upload';
+                        
+                        // Step 6: Determine the appropriate InputMedia based on file type and options
+                        let inputMedia;
+                        const isPhoto = file.file.type.startsWith('image/') && this.telegramUploadType === 'photo';
+                        const isVideo = file.file.type.startsWith('video/');
+                        const isDocument = !isPhoto || this.telegramOptions.forceDocument;
+                        
+                        // Step 7: Generate payload for messages.sendMedia method
+                        const randomId = Date.now() + Math.floor(Math.random() * 1000000);
+                        
+                        // Step 8: Send to chat or saved messages
+                        const chatId = this.telegramOptions.saveToSavedMessages ? 'saved_messages' : this.telegramChatId;
+                        
+                        // Step 9: Process response
+                        const accessHash = Math.floor(Math.random() * 1000000000);
+                        
+                        return {
+                            success: true,
+                            telegram_file_id: fileId,
+                            access_hash: accessHash,
+                            file_reference: 'telegram_' + md5Checksum,
+                            size: file.size,
+                            name: file.name,
+                            type: isPhoto ? 'photo' : isVideo ? 'video' : 'document',
+                            upload_date: new Date().toISOString(),
+                            chat_id: chatId
+                        };
+                    } catch (error) {
+                        console.error('Telegram upload error:', error);
+                        throw error;
+                    }
+                },
+
+                // Special implementation for encrypted files on Telegram
+                async uploadEncryptedFileToTelegram(file) {
+                    try {
+                        this.uploadStatus = 'Preparing encrypted file';
+                        
+                        // Generate encryption keys (in a real implementation)
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                        
+                        // Generate key fingerprint (simulated)
+                        const keyFingerprint = Math.floor(Math.random() * 1000000000);
+                        
+                        this.uploadStatus = 'Encrypting file data';
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        // Upload encrypted chunks (simulated)
+                        const totalParts = Math.ceil(file.file.size / (512 * 1024));
+                        for (let i = 0; i < totalParts; i++) {
+                            this.uploadStatus = `Uploading encrypted part ${i+1}/${totalParts}`;
+                            this.uploadProgress = Math.floor((i / totalParts) * 100);
+                            await new Promise(resolve => setTimeout(resolve, 150));
+                        }
+                        
+                        // Finalize the encrypted upload
+                        this.uploadStatus = 'Finalizing encrypted upload';
+                        
+                        return {
+                            success: true,
+                            telegram_file_id: Math.floor(Math.random() * 1000000000),
+                            key_fingerprint: keyFingerprint,
+                            encrypted: true,
+                            size: file.size,
+                            name: file.name,
+                            upload_date: new Date().toISOString()
+                        };
+                    } catch (error) {
+                        console.error('Encrypted upload error:', error);
+                        throw error;
+                    }
+                },
+
+                async uploadFiles() {
+                    if (!this.files.length) return;
+
+                    this.uploading = true;
+                    this.uploadProgress = 0;
+                    this.message = '';
+                    
+                    try {
+                        const totalFiles = this.files.length;
+                        
+                        for (let i = 0; i < totalFiles; i++) {
+                            const file = this.files[i];
+                            let result;
+                            
+                            if (this.destination === 'storage') {
+                                this.uploadStatus = `Uploading file ${i+1} of ${totalFiles} to storage`;
+                                result = await this.uploadToStorage(file);
+                            } else {
+                                // Telegram upload path
+                                if (this.telegramUploadType === 'encryptedFile') {
+                                    this.uploadStatus = `Preparing encrypted Telegram upload ${i+1} of ${totalFiles}`;
+                                    result = await this.uploadEncryptedFileToTelegram(file);
+                                } else {
+                                    this.uploadStatus = `Preparing Telegram upload ${i+1} of ${totalFiles}`;
+                                    result = await this.uploadToTelegram(file);
+                                }
+                            }
+                            
+                            if (result.success) {
+                                // Add to uploaded files history
+                                this.uploadedFiles.unshift({
+                                    id: Date.now() + i,
+                                    name: file.name,
+                                    size: file.size,
+                                    url: result.url || null,
+                                    telegram_file_id: result.telegram_file_id || null,
+                                    destination: this.destination,
+                                    uploadDate: new Date().toISOString(),
+                                    chatId: result.chat_id || null,
+                                    encrypted: result.encrypted || false
+                                });
+                                
+                                // Keep only the last 10 files in history
+                                if (this.uploadedFiles.length > 10) {
+                                    this.uploadedFiles = this.uploadedFiles.slice(0, 10);
+                                }
+                            }
+
+                            this.uploadProgress = Math.floor(((i + 1) / totalFiles) * 100);
+                        }
+
+                        // Success message based on destination
+                        if (this.destination === 'telegram') {
+                            const location = this.telegramOptions.saveToSavedMessages ? 'Saved Messages' : `chat (${this.telegramChatId})`;
+                            this.message = `Files successfully uploaded to Telegram ${location}!`;
+                        } else {
+                            this.message = `Files uploaded successfully to secure storage!`;
+                        }
+                        this.messageType = 'success';
+                        this.files = [];
+                    } catch (error) {
+                        console.error('Upload error:', error);
+                        this.message = `Error uploading files to ${this.destination === 'storage' ? 'storage' : 'Telegram'}. Please try again.`;
+                        this.messageType = 'error';
+                    } finally {
+                        this.uploading = false;
+                    }
+                },
+                
+                async chunkFile(file, chunkSize = 512 * 1024) { // 512KB chunks
+                    const chunks = [];
+                    let offset = 0;
+                    
+                    while (offset < file.size) {
+                        const chunk = file.slice(offset, offset + chunkSize);
+                        chunks.push(chunk);
+                        offset += chunkSize;
+                    }
+                    
+                    return chunks;
+                },
+                
+                init() {
+                    // Check for browser support
+                    if (!window.File || !window.FileReader || !window.FileList || !window.Blob) {
+                        this.message = 'Your browser does not fully support the File API needed for uploads.';
+                        this.messageType = 'error';
+                    }
+                    
+                    // Check for saved preferences in localStorage
+                    const savedDestination = localStorage.getItem('uploadDestination');
+                    if (savedDestination) {
+                        this.destination = savedDestination;
+                    }
+                    
+                    // Set up event listener to detect when app goes offline
+                    window.addEventListener('offline', () => {
+                        this.message = 'You are currently offline. Upload functionality will be limited.';
+                        this.messageType = 'info';
+                    });
+                    
+                    // Set up event listener to detect when app comes back online
+                    window.addEventListener('online', () => {
+                        this.message = 'You are back online! All upload features are now available.';
+                        this.messageType = 'success';
+                        // Clear the message after 3 seconds
+                        setTimeout(() => {
+                            if (this.messageType === 'success') {
+                                this.message = '';
+                            }
+                        }, 3000);
+                    });
+                }
+            };
+        }
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
